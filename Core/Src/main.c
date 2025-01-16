@@ -42,24 +42,29 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc2;
 
 I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart4;
 
 /* USER CODE BEGIN PV */
-uint16_t adc_value;    // ADC读取值
-uint8_t uart_buffer[20];  // UART发送缓存
-uint32_t voltage_mv;   // 电压值(mV)
+uint16_t adc1_value;    // ADC1读取值
+uint16_t adc2_value;    // ADC2读取值
+uint8_t uart_buffer[50];  // UART发送缓存
+uint32_t voltage1_mv;   // ADC1电压值(mV)
+uint32_t voltage2_mv;   // ADC2电压值(mV)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_UART4_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_ADC2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -95,6 +100,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -104,25 +112,24 @@ int main(void)
   MX_ADC1_Init();
   MX_UART4_Init();
   MX_I2C1_Init();
+  MX_ADC2_Init();
   /* USER CODE BEGIN 2 */
-  // ADC校准
-
+  // ADC1校准
   if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED) != HAL_OK)
   {
     Error_Handler();
   }
   
-  HAL_Delay(10);  // 等待校准完成
-  
-  // 启动ADC转换
-  if(HAL_ADC_Start(&hadc1) != HAL_OK)
+  // ADC2校准
+  if (HAL_ADCEx_Calibration_Start(&hadc2, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED) != HAL_OK)
   {
     Error_Handler();
   }
-
-
-  char uart_buffer1[] = "ADC-------end";
-  HAL_UART_Transmit(&huart4, uart_buffer1, strlen((char*)uart_buffer1), 100);
+  
+  HAL_Delay(100);  // 等待校准完成
+  
+  char uart_buffer1[] = "ADC Start Reading...\r\n";
+  HAL_UART_Transmit(&huart4, (uint8_t*)uart_buffer1, strlen(uart_buffer1), 100);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -132,20 +139,33 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // 等待转换完成
-    if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    // 启动ADC1转换
+    HAL_ADC_Start(&hadc1);
+    
+    // 等待ADC1转换完成
+    if(HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
     {
-      adc_value = HAL_ADC_GetValue(&hadc1);    // 获取ADC值
-      voltage_mv = (adc_value * 3300) / 65535;  // 转换为毫伏值
-      
-      // 将电压值转换为字符串并通过UART发送（显示毫伏值）
-      sprintf((char*)uart_buffer, "%lumV\r\n", voltage_mv);
-      HAL_UART_Transmit(&huart4, uart_buffer, strlen((char*)uart_buffer), 100);
+      adc1_value = HAL_ADC_GetValue(&hadc1);    // 获取ADC1值
+      voltage1_mv = (adc1_value * 3300) / 65535;  // 转换为毫伏值
     }
     
-    // 启动下一次转换
-    HAL_ADC_Start(&hadc1);
-    HAL_Delay(100);  // 延时100ms
+    // 启动ADC2转换
+    HAL_ADC_Start(&hadc2);
+    
+    // 等待ADC2转换完成
+    if(HAL_ADC_PollForConversion(&hadc2, 100) == HAL_OK)
+    {
+      adc2_value = HAL_ADC_GetValue(&hadc2);    // 获取ADC2值
+      voltage2_mv = (adc2_value * 3300) / 65535;  // 转换为毫伏值
+    }
+    
+    // 将两个ADC的原始值和电压值都输出，方便调试
+    sprintf((char*)uart_buffer, "ADC1:%u/%lumV ADC2:%u/%lumV\r\n", 
+            adc1_value, voltage1_mv,
+            adc2_value, voltage2_mv);
+    HAL_UART_Transmit(&huart4, uart_buffer, strlen((char*)uart_buffer), 100);
+    
+    HAL_Delay(500);  // 增加延时时间，方便观察
   }
   /* USER CODE END 3 */
 }
@@ -199,6 +219,32 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInitStruct.PLL2.PLL2M = 4;
+  PeriphClkInitStruct.PLL2.PLL2N = 10;
+  PeriphClkInitStruct.PLL2.PLL2P = 2;
+  PeriphClkInitStruct.PLL2.PLL2Q = 2;
+  PeriphClkInitStruct.PLL2.PLL2R = 2;
+  PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;
+  PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOMEDIUM;
+  PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
+  PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_PLL2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
@@ -270,6 +316,66 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief ADC2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC2_Init(void)
+{
+
+  /* USER CODE BEGIN ADC2_Init 0 */
+
+  /* USER CODE END ADC2_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC2_Init 1 */
+
+  /* USER CODE END ADC2_Init 1 */
+
+  /** Common config
+  */
+  hadc2.Instance = ADC2;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+  hadc2.Init.Resolution = ADC_RESOLUTION_16B;
+  hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc2.Init.LowPowerAutoWait = DISABLE;
+  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.NbrOfConversion = 1;
+  hadc2.Init.DiscontinuousConvMode = DISABLE;
+  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
+  hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc2.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
+  hadc2.Init.OversamplingMode = DISABLE;
+  hadc2.Init.Oversampling.Ratio = 1;
+  if (HAL_ADC_Init(&hadc2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_7;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  sConfig.OffsetSignedSaturation = DISABLE;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC2_Init 2 */
+
+  /* USER CODE END ADC2_Init 2 */
 
 }
 
